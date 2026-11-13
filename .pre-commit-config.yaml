@@ -1,3 +1,8 @@
+# Copyright (c) Huawei Technologies Co., Ltd. 2026. All rights reserved.
+# This source file is part of the Cangjie project, licensed under Mulan PSL v2.
+#
+# See https://license.coscl.org.cn/MulanPSL2 for license information.
+
 # 仓颉社区统一提交校验：Conventional Commits + DCO
 # 使用说明：https://gitcode.com/Cangjie/cangjie_build/blob/main/docs/pre-commit.md
 default_install_hook_types: [commit-msg]

@@ -312,12 +312,7 @@ class TestSuiteTask:
             {PASS: 0, FAIL: 0, NOT_RUN: 0, UNRESOLVED: 0}
         )
         repeat_num = configs.get_val("repeat") or 1
-        if self.path.is_file():
-            include, exclude = self._read_testlist(testlist_path)
-            rel = os.path.relpath(str(self.path), str(complete_path(base_dir))).replace(os.sep, "/")
-            if (not any(glob_to_regex(pattern).match(rel) for pattern in include) or
-                    any(glob_to_regex(pattern).match(rel) for pattern in exclude)):
-                return
+        if self.path.is_file():  # Single case input, don`t scan testlist, just run it!
             comment = self.suffix_comments[self.path.name.split('.')[-1]]
             case = Case(self.path, self.path, comment, self.condition, run_script, self.level)
             if case.relative_path != '':
@@ -372,20 +367,16 @@ class TestSuiteTask:
                 testlist_path.append(path)
         return testlist_path
 
-    @staticmethod
-    def _read_testlist(testlist_paths):
+    def _search_list(self, base_dir, testlist_paths):
+        logger = configs.LOGGER
+        suffixes = self.suffix_comments.keys()
         temp = []
         if testlist_paths:
             for testlist_path in testlist_paths:
                 with open(testlist_path, 'r', errors='ignore', encoding='UTF-8-sig') as cases:
                     content = cases.readlines()
                     temp += content
-        return read_list(temp)
-
-    def _search_list(self, base_dir, testlist_paths):
-        logger = configs.LOGGER
-        suffixes = self.suffix_comments.keys()
-        include, exclude = self._read_testlist(testlist_paths)
+        include, exclude = read_list(temp)
         cases = []
         if self.path.is_file():
             # 单文件输入:跳过 testlist 扫描,直接运行该文件
@@ -420,8 +411,6 @@ class TestSuiteTask:
                 for file in case_files
                 if is_relative(file, self.path)
             ]
-        plan = os.environ.get("CANGJIE_LLT_PLAN")
-        observed = {}
         for case_file in case_files:
             case_name = str(case_file)
             try:
@@ -430,15 +419,10 @@ class TestSuiteTask:
                 sys.exit("[ERROR] Test case path invalid!")
             if case_name not in self.all_cases:
                 case = Case(case_file, self.path, comment, self.condition, self.config.run_script, self.level)
-                if plan:
-                    observed[case_name] = case
                 if case.relative_path != '':
                     self.all_cases[case_name] = case
             if case_name in self.all_cases:
                 cases.append(self.all_cases[case_name])
-        if plan:
-            from llt_maple_plan import write_plan
-            write_plan(plan, self, observed, SingleTask._form_line)
         return cases
 
     @staticmethod
@@ -729,7 +713,7 @@ class TestSuiteTask:
             raise KeyboardInterrupted()
 
     def form_cost_time(self):
-        name = self.running_config['log_config']['dir'] / 'cost_time.csv'
+        name = os.path.join(os.path.dirname(self.cfg_path), 'cost_time.csv')
         with open(name, 'w') as f:
             for i in self.cost_time_info:
                 if isinstance(self.cost_time_info[i], str):
@@ -1077,12 +1061,6 @@ class SingleTask:
         for file in src_files:
             if file.is_file():
                 shutil.copy(str(file), str(dest))
-                if os.environ.get("CANGJIE_TEST_LSP_TOOLS") and file.resolve() == (Path(os.environ["CANGJIE_TEST"]) / "testsuites/HLT/Tools/cjlsp/lsp_config.txt").resolve():
-                    target = dest / file.name
-                    text = target.read_text()
-                    if text.count("${linux_lsp_server_path}") != 1:
-                        raise ValueError("upstream LSP configuration anchor mismatch")
-                    target.write_text(text.replace("${linux_lsp_server_path}", os.environ["CANGJIE_TEST_LSP_TOOLS"]))
             else:
                 name = file.name
                 try:

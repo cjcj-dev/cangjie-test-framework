@@ -275,8 +275,6 @@ def run_commands(
     if not commands:
         logger.error("Run task exit unexpected : {}".format(old_result[1]))
         return position, old_result
-    from admission import wait_for_load
-    wait_for_load(case_path)
     remain_time = timeout
     result = [PASS, None]
     logger.debug("Work directory: {}".format(work_dir))

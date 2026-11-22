@@ -35,22 +35,6 @@ def ensure_config_initialized():
         is_initialized = True
 
 
-def read_case_directives(path, comment):
-    try:
-        return split_comment(comment, read_file(path))[1], None
-    except UnicodeDecodeError as error:
-        if path.suffix != '.cj' or not __import__('os').environ.get('CANGJIE_HLT_SOURCE_DIRECTIVES'):
-            raise
-        # Decode only to discover directives. The actual compiler input is the
-        # original byte stream copied by SingleTask, including invalid bytes.
-        with path.open(encoding='utf-8', errors='surrogateescape') as source:
-            lines = split_comment(comment, source)[1]
-        # Never parse a partial or altered directive.
-        if any(any('\udc80' <= c <= '\udcff' for c in line) for line in lines):
-            raise
-        return lines, error
-
-
 class Case:
     def __init__(self, path, test_path, comment, condition, run_script, level=None):
         if level is None:
@@ -67,40 +51,23 @@ class Case:
         self.relative_path = path
         self.comment = comment
         try:
-            comment_lines, source_decode_error = read_case_directives(self.path, comment)
-        except UnicodeDecodeError as error:
-            self._ignore_decode_error(error)
+            _, comment_lines = split_comment(comment, read_file(self.path), )
+        except UnicodeDecodeError as e:
+            safe_print('[WARNING] ignore {} for {}.'.format(self.name, e))
+            self.commands = []
+            self.expect = []
+            self.dependence = {}
+            self.timeout = 300
+            self.level = False
         else:
             self.level = extract_level(comment_lines, level, condition)
             self.commands = enumerate_compares(extract_commands(comment_lines, condition, run_script))
             self.expect = extract_expect(comment_lines)
             self.dependence = extract_dependence(comment_lines, condition)
-            if __import__('os').environ.get('CANGJIE_LLT_PLAN'):
-                from llt_maple_plan import audit_directives
-                self.llt_audit = audit_directives(self, comment_lines, condition, run_script, extract_dependence)
-            if source_decode_error is None:
-                self.separation_by_files = extract_separation_by_files(comment_lines, self.path, condition)
-                self.timeout = extract_timeout(comment_lines, condition)
-            else:
-                # Parse with the native grammar first so its errors propagate.
-                # Splitting would reopen the invalid source as strict UTF-8.
-                separates = any(filter_line(line, SEPARATE_FILE_DIRECTIVE, condition) for line in comment_lines)
-                self.timeout = extract_timeout(comment_lines, condition)
-                if not self.commands or separates:
-                    self._ignore_decode_error(source_decode_error)
-                else:
-                    self.separation_by_files = []
+            self.separation_by_files = extract_separation_by_files(comment_lines, self.path, condition)
+            self.timeout = extract_timeout(comment_lines, condition)
         if not self.level:
             self.relative_path = ''
-
-    def _ignore_decode_error(self, error):
-        safe_print('[WARNING] ignore {} for {}.'.format(self.name, error))
-        self.decode_error = True
-        self.commands = []
-        self.expect = []
-        self.dependence = {}
-        self.timeout = 300
-        self.level = False
 
     def __repr__(self):
         return str(self.relative_path)
@@ -114,11 +81,11 @@ def extract_expect(comment_lines):
     return expect_line[-1]
 
 
-def extract_dependence(comment_lines, condition, *, ignore_guard=False):
+def extract_dependence(comment_lines, condition):
     support_separartor = ",; "
     dependence = []
     for line in comment_lines:
-        line = filter_line(line, DEPENDENCE_FLAG, condition, ignore_guard=ignore_guard)
+        line = filter_line(line, DEPENDENCE_FLAG, condition)
         if not line:
             continue
         parser = shlex.shlex(line)

@@ -172,7 +172,7 @@ def complete_path(path):
     return path.expanduser().resolve()
 
 
-def filter_line(line, flag=None, condition=None, *, ignore_guard=False):
+def filter_line(line, flag=None, condition=None):
     """Returns the line starting with the flag"""
     if flag is None:
         return line
@@ -192,7 +192,7 @@ def filter_line(line, flag=None, condition=None, *, ignore_guard=False):
             return None
         else:
             cur_con = cur_condition.group()
-            if ignore_guard or process_condition(cur_con, condition):
+            if process_condition(cur_con, condition):
                 new_line_flag = line_flag.replace(cur_con, "").strip()
                 if new_line_flag == flag:
                     new_line = line.strip()[len(line_flag) + 1:].strip().lstrip(":").strip()
@@ -312,7 +312,7 @@ def filter_level(line: str, level: set) -> bool:
     return line in level
 
 
-def filter_command_line(line: str, conditions: set, run_script: str, compatible: bool, *, ignore_guard=False):
+def filter_command_line(line: str, conditions: set, run_script: str, compatible: bool):
     """Returns and updates the command line starting with the flag"""
     line_flag = line.strip().split(":")[0].strip()
     if precheck_flag(line_flag):
@@ -320,7 +320,7 @@ def filter_command_line(line: str, conditions: set, run_script: str, compatible:
     cur_con = re.match(r'\([0-9a-zA-Z_\|\&\!\(\) ]+\)', line_flag)
     if cur_con != None:  # None condition means good.
         target = cur_con.group()
-        if not ignore_guard and not process_condition(target, conditions):
+        if not process_condition(target, conditions):
             return None
         else:
             line = line.replace(target, " " * len(target))

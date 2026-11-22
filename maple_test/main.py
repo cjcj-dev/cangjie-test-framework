@@ -181,11 +181,11 @@ def main():
                     print(content)
                     print("-" * 120)
 
-    if configs.get_val("fail_exit") and failed:
-        exit(1)
+        if configs.get_val("fail_exit") and failed:
+            exit(1)
 
-    if configs.get_val("pass_rate") and failed_rate:
-        exit(1)
+        if configs.get_val("pass_rate") and failed_rate:
+            exit(1)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@
 # See the Mulan PSL v2 for more details.
 #
 import copy
+import csv
 import datetime
 import multiprocessing
 import platform
@@ -275,7 +276,6 @@ class TestSuiteTask:
         self.task_set = defaultdict(list)
         self.task_set_result = {}
         self.all_cases = {}
-        self.cost_time_info = {}
         self.config = None
         self._form_task_set(running_config, cli_running_config)
 
@@ -543,7 +543,6 @@ class TestSuiteTask:
             safe_print(
                 "\nInterrupted, remaining cases are marked {}".format(NOT_RUN)
             )
-        self.form_cost_time()
         if interrupted:
             raise KeyboardInterrupted()
 
@@ -711,34 +710,45 @@ class TestSuiteTask:
             task.result = result
             self.task_set_result[tasks_name][result[0]] += 1
             self.cost_time_info[task] = result[-1]
-        self.form_cost_time()
         if interrupted:
             raise KeyboardInterrupted()
 
-    def form_cost_time(self):
+    def form_cost_time(self, run_time):
+        # All targets in one invocation share running_config. Start a fresh
+        # report for its first batch, then append only this attempt's results.
+        batch = self.running_config.get('timing_batch', 0) + 1
+        self.running_config['timing_batch'] = batch
         name = self.running_config['log_config']['dir'] / 'cost_time.csv'
-        with open(name, 'w') as f:
-            for i in self.cost_time_info:
-                if isinstance(self.cost_time_info[i], str):
-                    f.write('{},{}\n'.format(i, self.cost_time_info[i]))
-                elif isinstance(self.cost_time_info[i], datetime.timedelta):
-                    f.write('{},{}\n'.format(i, self.cost_time_info[i].total_seconds()))
-                else:
-                    f.write('{},{}\n'.format(i, 'error'))
+        with name.open('w' if batch == 1 else 'a', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            for task, elapsed in self.cost_time_info.items():
+                if task.result[0] == NOT_RUN and elapsed is None:
+                    continue  # Interrupted while still queued.
+                if isinstance(elapsed, datetime.timedelta):
+                    elapsed = elapsed.total_seconds()
+                elif not isinstance(elapsed, str):
+                    elapsed = 'error'
+                # Keep the case name (including #rN) and duration first.
+                writer.writerow((task, elapsed, task.result[0], self.cfg_path,
+                                 self.path, batch, run_time))
         safe_print('INFO: cost time info write in {}!'.format(name))
 
     def run(self, process_num=1, run_time=1):
         logger = configs.LOGGER
-        if process_num == 1 and sum([len(case) for case in self.task_set.values()]) == 1:
-            logger.debug("The number of running processes is 1, which will run serial")
-            self.serial_run_task()
-        else:
-            logger.debug(
-                "The number of running processes is {}, and will run in parallel".format(
-                    process_num
+        self.cost_time_info = {}
+        try:
+            if process_num == 1 and sum([len(case) for case in self.task_set.values()]) == 1:
+                logger.debug("The number of running processes is 1, which will run serial")
+                self.serial_run_task()
+            else:
+                logger.debug(
+                    "The number of running processes is {}, and will run in parallel".format(
+                        process_num
+                    )
                 )
-            )
-            self.parallel_run_task(process_num)
+                self.parallel_run_task(process_num)
+        finally:
+            self.form_cost_time(run_time)
         print_type = configs.get_val("print_type")
         g_summary = self.gen_summary(print_type, run_time).splitlines()
         for line in g_summary:

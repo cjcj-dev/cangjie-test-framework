@@ -1,3 +1,4 @@
+import csv
 import json
 from pathlib import Path
 import subprocess
@@ -46,3 +47,41 @@ class EntryTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(before, sorted(self.cases.iterdir()))
         self.assertTrue((self.root / "logs/cost_time.csv").is_file())
+
+    def test_multi_cfg_timing_keeps_each_execution(self):
+        # Both targets and their cases have the same display name; visit the
+        # first target twice, repeat each case, and retry failures only.
+        left, right = (self.root / side / "suite" for side in ("left", "right"))
+        for suite, cmd in ((left, "false"), (right, "echo 中文")):
+            suite.mkdir(parents=True)
+            (suite / "test.cfg").write_text("[suffix]\ncj = //\n", encoding="utf-8")
+            (suite / "testlist").write_text("[ALL-TEST-CASE]\n*.cj\n", encoding="utf-8")
+            (suite / "同,名.cj").write_text("// EXEC: " + cmd + "\n", encoding="utf-8")
+        cfg = self.root / "maple.cfg"
+        cfg.write_text("[test-home]\ndir = {}:{}:{}\n[running]\ntemp_dir = {}\n"
+                       "[logging]\nname = {}\nlevel = INFO\n".format(
+                           left, right, left, self.root / "work", self.root / "logs"), encoding="utf-8")
+        report = self.root / "logs" / "cost_time.csv"
+        report.parent.mkdir()
+        report.write_text("previous invocation\n", encoding="utf-8")
+        proc = subprocess.run([sys.executable, "-B", str(ENTRY), "--cfg", str(cfg),
+                               "--repeat", "2", "--retry", "1", "-j", "2", "--fail_exit",
+                               "--progress=silent", "--output", str(self.root / "results.txt")],
+                              cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        with report.open(encoding="utf-8", newline="") as f:
+            rows = list(csv.reader(f))
+        self.assertEqual(10, len(rows), rows)
+        expected = []
+        for suite, status, attempts in ((left, "FAIL", (1, 2)), (right, "PASS", (1,)),
+                                        (left, "FAIL", (1, 2))):
+            for attempt in attempts:
+                for repeat in (1, 2):
+                    expected.append(("同,名.cj#r{}".format(repeat), status, str(suite / "test.cfg"),
+                                     str(suite), str(attempt)))
+        self.assertCountEqual(expected, [(Path(name).name, status, cfg, target, attempt)
+                              for name, elapsed, status, cfg, target, batch, attempt in rows])
+        self.assertEqual(len(rows), len({(row[5], row[0]) for row in rows}))
+        self.assertTrue(all(float(row[1]) >= 0 for row in rows))
+        for suite in (left, right):
+            self.assertFalse((suite / "cost_time.csv").exists())

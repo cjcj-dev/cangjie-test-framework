@@ -312,7 +312,7 @@ class TestSuiteTask:
             {PASS: 0, FAIL: 0, NOT_RUN: 0, UNRESOLVED: 0}
         )
         repeat_num = configs.get_val("repeat") or 1
-        if self.path.is_file():  # Single case input, don`t scan testlist, just run it!
+        if self.path.is_file() and user_test_list is None:  # Standalone case without an explicit list.
             comment = self.suffix_comments[self.path.name.split('.')[-1]]
             case = Case(self.path, self.path, comment, self.condition, run_script, self.level)
             if case.relative_path != '':
@@ -379,7 +379,10 @@ class TestSuiteTask:
         include, exclude = read_list(temp)
         cases = []
         if self.path.is_file():
-            # 单文件输入:跳过 testlist 扫描,直接运行该文件
+            relative = os.path.relpath(self.path, complete_path(base_dir)).replace(os.sep, "/")
+            if (not any(glob_to_regex(pattern).match(relative) for pattern in include)
+                    or any(glob_to_regex(pattern).match(relative) for pattern in exclude)):
+                return []
             case_files = [self.path]
         else:
             all_test_case, exclude_test_case = self._search_case_scoped(
@@ -713,7 +716,7 @@ class TestSuiteTask:
             raise KeyboardInterrupted()
 
     def form_cost_time(self):
-        name = os.path.join(os.path.dirname(self.cfg_path), 'cost_time.csv')
+        name = self.running_config['log_config']['dir'] / 'cost_time.csv'
         with open(name, 'w') as f:
             for i in self.cost_time_info:
                 if isinstance(self.cost_time_info[i], str):

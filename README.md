@@ -46,6 +46,20 @@ name = ../test_temp/log
 level = INFO
 ```
 
+Timing readers that used to look beside `test.cfg` should now read
+`cost_time.csv` in the log directory printed at startup. Set `--log_dir` to
+override `[logging] name`; the shipped configuration uses `test_temp/log`
+under the framework root. Choose a writable log directory for read-only
+checkouts and a separate one for each concurrent invocation.
+
+The file is UTF-8 CSV without a header: unpack each row as `case, seconds`
+with a CSV reader (case names can contain commas). The second field is the
+elapsed time in seconds, or the framework's timing marker when unavailable.
+The first execution batch replaces any old report; subsequent targets and
+retries in the same invocation append one row per completed attempt.
+Repeats keep their `#rN` suffix. Names can recur, so keep the rows rather
+than using the name as a unique key.
+
 ## Execution Instructions
 
 Test-case execution depends:

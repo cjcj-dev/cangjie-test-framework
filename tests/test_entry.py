@@ -46,7 +46,10 @@ class EntryTest(unittest.TestCase):
         self.assertEqual([("excluded.cj", "PASS")], rows)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(before, sorted(self.cases.iterdir()))
-        self.assertTrue((self.root / "logs/cost_time.csv").is_file())
+        with (self.root / "logs/cost_time.csv").open(encoding="utf-8", newline="") as report:
+            [(case, seconds)] = csv.reader(report)
+        self.assertEqual(str(Path("cases") / "excluded.cj"), case)
+        self.assertGreaterEqual(float(seconds), 0)
 
     def test_multi_cfg_timing_keeps_each_execution(self):
         # Both targets and their cases have the same display name; visit the
@@ -66,22 +69,24 @@ class EntryTest(unittest.TestCase):
         report.write_text("previous invocation\n", encoding="utf-8")
         proc = subprocess.run([sys.executable, "-B", str(ENTRY), "--cfg", str(cfg),
                                "--repeat", "2", "--retry", "1", "-j", "2", "--fail_exit",
-                               "--progress=silent", "--output", str(self.root / "results.txt")],
+                               "--progress=silent", "--json_output", str(self.root / "results.json"),
+                               "--output", str(self.root / "results.txt")],
                               cwd=self.root, capture_output=True, text=True)
         self.assertEqual(1, proc.returncode, proc.stderr)
+        groups = json.loads((self.root / "results.json").read_text(encoding="utf-8"))
+        self.assertEqual(3, len(groups))
+        for group, suite, status in zip(groups, (left, right, left), ("FAIL", "PASS", "FAIL")):
+            self.assertCountEqual([(str(suite / "test.cfg"), "同,名.cj#r{}".format(i), status)
+                                   for i in (1, 2)],
+                                  [(row["cfg"], Path(row["name"]).name, row["result"])
+                                   for row in group["tests"]])
+
+        # The public reader unpacks exactly two fields. Equal display names
+        # are separate observations: 2 failing visits x 2 attempts + 1 pass.
         with report.open(encoding="utf-8", newline="") as f:
-            rows = list(csv.reader(f))
-        self.assertEqual(10, len(rows), rows)
-        expected = []
-        for suite, status, attempts in ((left, "FAIL", (1, 2)), (right, "PASS", (1,)),
-                                        (left, "FAIL", (1, 2))):
-            for attempt in attempts:
-                for repeat in (1, 2):
-                    expected.append(("同,名.cj#r{}".format(repeat), status, str(suite / "test.cfg"),
-                                     str(suite), str(attempt)))
-        self.assertCountEqual(expected, [(Path(name).name, status, cfg, target, attempt)
-                              for name, elapsed, status, cfg, target, batch, attempt in rows])
-        self.assertEqual(len(rows), len({(row[5], row[0]) for row in rows}))
-        self.assertTrue(all(float(row[1]) >= 0 for row in rows))
+            timings = [(case, float(seconds)) for case, seconds in csv.reader(f)]
+        self.assertCountEqual([str(Path("suite") / "同,名.cj#r{}".format(i))
+                               for i in (1, 2)] * 5, [case for case, _ in timings])
+        self.assertTrue(all(seconds >= 0 for _, seconds in timings))
         for suite in (left, right):
             self.assertFalse((suite / "cost_time.csv").exists())
